@@ -1,0 +1,9 @@
+services:
+  - type: worker
+    name: bybit-pump-bot
+    env: python
+    buildCommand: ""
+    startCommand: python main.py
+    repo: https://github.com/your-username/your-repo-name
+    branch: main
+    plan: free
