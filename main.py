@@ -1,7 +1,6 @@
-
 import requests
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 # === CONFIG ===
 TELEGRAM_BOT_TOKEN = "8181037750:AAFhrsLUMzoLzPbvnlgMnHPKlrJH3leUiCM"
@@ -49,7 +48,7 @@ def get_bybit_prices():
 print("✅ Bot started. Watching Bybit USDT coins for 7% pumps...")
 
 while True:
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     prices = get_bybit_prices()
 
     for symbol, current_price in prices.items():
