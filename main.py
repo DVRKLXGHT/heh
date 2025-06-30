@@ -1,4 +1,3 @@
-
 import requests
 import time
 from datetime import datetime, timedelta, timezone
@@ -14,8 +13,7 @@ price_history = {}
 
 def send_telegram_alert(symbol, percent_change, direction, source):
     emoji = "🚀" if direction == "pump" else "📉"
-    message = f"{emoji} {symbol} is {direction.upper()}ING on {source}!
-{percent_change:+.2f}% in last {TIME_WINDOW_MINUTES} mins!"
+    message = f"{emoji} {symbol} is {direction.upper()}ING on {source}!\n{percent_change:+.2f}% in last {TIME_WINDOW_MINUTES} mins!"
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message}
     try:
