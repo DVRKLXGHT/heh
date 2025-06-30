@@ -2,8 +2,6 @@ services:
   - type: worker
     name: bybit-pump-bot
     env: python
-    buildCommand: ""
-    startCommand: python main.py
-    repo: https://github.com/your-username/your-repo-name
-    branch: main
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python main.py"
     plan: free
