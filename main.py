@@ -4,7 +4,7 @@ import time
 # === CONFIG ===
 DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1389535288371449927/SrWU4KPpcIV8cchgaQzo-8NwTsfpvBtE3HgLCQWl6BJNTdygCs1ixJM6A8Oc1v6e0DLu"
 PRICE_CHANGE_THRESHOLD = 3.7  # ±% for 5m candle
-VOLUME_SPIKE_MULTIPLIER = 150.0  # volume x on 1h candle
+VOLUME_SPIKE_MULTIPLIER = 3.0  # volume x on 1h candle
 SLEEP_INTERVAL = 60
 
 def send_discord_alert(symbol, value, event_type, source):
