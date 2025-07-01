@@ -1,89 +1,95 @@
 import requests
 import time
-from datetime import datetime, timedelta, timezone
 
 # === CONFIG ===
-TELEGRAM_BOT_TOKEN = "8181037750:AAFhrsLUMzoLzPbvnlgMnHPKlrJH3leUiCM"
-TELEGRAM_CHAT_ID = "7738504985"
-THRESHOLD_PERCENT = 7
-TIME_WINDOW_MINUTES = 5
-SLEEP_INTERVAL = 60  # seconds
+DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1389535288371449927/SrWU4KPpcIV8cchgaQzo-8NwTsfpvBtE3HgLCQWl6BJNTdygCs1ixJM6A8Oc1v6e0DLu"
+PRICE_CHANGE_THRESHOLD = 3.7  # %
+VOLUME_SPIKE_MULTIPLIER = 1.5  # spike = current volume is 1.5x previous
+SLEEP_INTERVAL = 60  # check every 60 sec
 
-price_history = {}
+# === ALERT FUNCTION ===
+def send_discord_alert(symbol, value, event_type, source):
+    emoji = {
+        "pump": "🚀",
+        "dump": "📉",
+        "volume": "📊"
+    }.get(event_type, "⚠️")
 
-def send_telegram_alert(symbol, percent_change, direction, source):
-    emoji = "🚀" if direction == "pump" else "📉"
-    message = f"{emoji} {symbol} is {direction.upper()}ING on {source}!\n{percent_change:+.2f}% in last {TIME_WINDOW_MINUTES} mins!"
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message}
+    if event_type == "volume":
+        message = f"{emoji} **{symbol}** volume spiked by {value:.2f}× on **{source}** (5m candle)"
+    else:
+        message = f"{emoji} **{symbol}** 5m candle closed with {value:+.2f}% ({event_type.upper()}) on **{source}**!"
+
     try:
-        response = requests.post(url, data=payload)
-        if response.status_code != 200:
-            print(f"⚠️ Telegram error: {response.text}")
+        requests.post(DISCORD_WEBHOOK_URL, json={"content": message})
     except Exception as e:
-        print("⚠️ Failed to send Telegram message:", e)
+        print("❌ Discord error:", e)
 
-def get_bybit_prices():
-    url = "https://api.bybit.com/v5/market/tickers?category=linear"
+# === FETCH BYBIT CANDLES ===
+def get_bybit_data():
+    url = "https://api.bybit.com/v5/market/kline?category=linear&interval=5&limit=3"
+    symbols_url = "https://api.bybit.com/v5/market/tickers?category=linear"
+    alerts = {}
+
     try:
-        response = requests.get(url)
-        data = response.json()
-        tickers = data.get("result", {}).get("list", [])
-        prices = {}
-        for t in tickers:
-            symbol = t["symbol"]
-            if "USDT" in symbol and not any(x in symbol for x in ["1000", "500", "250"]):
-                prices[symbol] = float(t["lastPrice"])
-        return prices
+        data = requests.get(symbols_url).json().get("result", {}).get("list", [])
+        symbols = [t["symbol"] for t in data if "USDT" in t["symbol"] and not any(x in t["symbol"] for x in ["1000", "500"])]
+        
+        for symbol in symbols:
+            res = requests.get(f"{url}&symbol={symbol}")
+            k = res.json().get("result", {}).get("list", [])
+            if len(k) >= 3:
+                o = float(k[-2][1])
+                c = float(k[-2][4])
+                v1 = float(k[-2][5])
+                v2 = float(k[-3][5])
+                pc = ((c - o) / o) * 100
+                vr = v1 / v2 if v2 > 0 else 0
+                alerts[symbol] = (pc, vr)
     except Exception as e:
-        print("⚠️ Bybit API error:", e)
-        return {}
+        print("Bybit error:", e)
 
-def get_blofin_prices():
-    url = "https://api.blofin.com/v1/market/tickers"
+    return alerts
+
+# === FETCH BLOFIN CANDLES ===
+def get_blofin_data():
+    tickers = "https://api.blofin.com/v1/market/tickers"
+    alerts = {}
+
     try:
-        response = requests.get(url)
-        data = response.json()
-        tickers = data.get("data", [])
-        prices = {}
-        for t in tickers:
-            symbol = t.get("symbol", "")
-            price = float(t.get("price", 0))
-            if "USDT" in symbol:
-                prices[symbol] = price
-        return prices
+        d = requests.get(tickers).json().get("data", [])
+        symbols = [s["symbol"] for s in d if "USDT" in s["symbol"]]
+        
+        for symbol in symbols:
+            url = f"https://api.blofin.com/v1/market/kline?symbol={symbol}&interval=5m&limit=3"
+            res = requests.get(url).json()
+            k = res.get("data", [])
+            if len(k) >= 3:
+                o = float(k[-2][1])
+                c = float(k[-2][4])
+                v1 = float(k[-2][5])
+                v2 = float(k[-3][5])
+                pc = ((c - o) / o) * 100
+                vr = v1 / v2 if v2 > 0 else 0
+                alerts[symbol] = (pc, vr)
     except Exception as e:
-        print("⚠️ Blofin API error:", e)
-        return {}
+        print("Blofin error:", e)
 
-def process_prices(prices, source):
-    now = datetime.now(timezone.utc)
-    for symbol, current_price in prices.items():
-        key = f"{source}:{symbol}"
-        if key not in price_history:
-            price_history[key] = []
-        price_history[key].append((now, current_price))
+    return alerts
 
-        # Filter old data
-        price_history[key] = [
-            (t, p) for t, p in price_history[key]
-            if now - t <= timedelta(minutes=TIME_WINDOW_MINUTES)
-        ]
+# === CHECK FOR EVENTS ===
+def check_alerts(data, source):
+    for symbol, (pc, vr) in data.items():
+        if pc >= PRICE_CHANGE_THRESHOLD:
+            send_discord_alert(symbol, pc, "pump", source)
+        elif pc <= -PRICE_CHANGE_THRESHOLD:
+            send_discord_alert(symbol, pc, "dump", source)
+        elif vr >= VOLUME_SPIKE_MULTIPLIER:
+            send_discord_alert(symbol, vr, "volume", source)
 
-        if len(price_history[key]) >= 2:
-            old_time, old_price = price_history[key][0]
-            if old_price > 0:
-                percent_change = (current_price - old_price) / old_price * 100
-                if percent_change >= THRESHOLD_PERCENT:
-                    send_telegram_alert(symbol, percent_change, "pump", source)
-                    price_history[key] = [(now, current_price)]
-                elif percent_change <= -THRESHOLD_PERCENT:
-                    send_telegram_alert(symbol, percent_change, "dump", source)
-                    price_history[key] = [(now, current_price)]
-
-print("✅ Bot started. Watching Bybit & Blofin USDT coins for PUMPS & DUMPS (±7% in 5 mins)...")
-
+# === MAIN LOOP ===
+print("✅ Bot is running... monitoring 5m pump, dump, volume events")
 while True:
-    process_prices(get_bybit_prices(), "Bybit")
-    process_prices(get_blofin_prices(), "Blofin")
+    check_alerts(get_bybit_data(), "Bybit")
+    check_alerts(get_blofin_data(), "Blofin")
     time.sleep(SLEEP_INTERVAL)
