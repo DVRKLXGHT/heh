@@ -3,11 +3,11 @@ import time
 
 # === CONFIG ===
 DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1389535288371449927/SrWU4KPpcIV8cchgaQzo-8NwTsfpvBtE3HgLCQWl6BJNTdygCs1ixJM6A8Oc1v6e0DLu"
-PRICE_CHANGE_THRESHOLD = 3.7  # %
-VOLUME_SPIKE_MULTIPLIER = 1.5  # spike = current volume is 1.5x previous
-SLEEP_INTERVAL = 60  # check every 60 sec
+PRICE_CHANGE_THRESHOLD = 3.7  # ±% candle change for pump/dump
+VOLUME_SPIKE_MULTIPLIER = 150.0  # 150x volume spike
+SLEEP_INTERVAL = 60  # run every 60 seconds
 
-# === ALERT FUNCTION ===
+# === DISCORD ALERT ===
 def send_discord_alert(symbol, value, event_type, source):
     emoji = {
         "pump": "🚀",
@@ -16,16 +16,16 @@ def send_discord_alert(symbol, value, event_type, source):
     }.get(event_type, "⚠️")
 
     if event_type == "volume":
-        message = f"{emoji} **{symbol}** volume spiked by {value:.2f}× on **{source}** (5m candle)"
+        message = f"@everyone {emoji} **{symbol}** volume spiked by {value:.2f}× on **{source}** (5m candle)"
     else:
-        message = f"{emoji} **{symbol}** 5m candle closed with {value:+.2f}% ({event_type.upper()}) on **{source}**!"
+        message = f"@everyone {emoji} **{symbol}** 5m candle closed with {value:+.2f}% ({event_type.upper()}) on **{source}**!"
 
     try:
         requests.post(DISCORD_WEBHOOK_URL, json={"content": message})
     except Exception as e:
         print("❌ Discord error:", e)
 
-# === FETCH BYBIT CANDLES ===
+# === BYBIT DATA ===
 def get_bybit_data():
     url = "https://api.bybit.com/v5/market/kline?category=linear&interval=5&limit=3"
     symbols_url = "https://api.bybit.com/v5/market/tickers?category=linear"
@@ -51,24 +51,24 @@ def get_bybit_data():
 
     return alerts
 
-# === FETCH BLOFIN CANDLES ===
+# === BLOFIN DATA ===
 def get_blofin_data():
     tickers = "https://api.blofin.com/v1/market/tickers"
     alerts = {}
 
     try:
-        d = requests.get(tickers).json().get("data", [])
-        symbols = [s["symbol"] for s in d if "USDT" in s["symbol"]]
-        
-        for symbol in symbols:
+        res = requests.get(tickers).json()
+        symbol_list = [s["symbol"] for s in res.get("data", []) if "USDT" in s["symbol"]]
+
+        for symbol in symbol_list:
             url = f"https://api.blofin.com/v1/market/kline?symbol={symbol}&interval=5m&limit=3"
-            res = requests.get(url).json()
-            k = res.get("data", [])
-            if len(k) >= 3:
-                o = float(k[-2][1])
-                c = float(k[-2][4])
-                v1 = float(k[-2][5])
-                v2 = float(k[-3][5])
+            resp = requests.get(url).json()
+            kline = resp.get("data", [])
+            if len(kline) >= 3:
+                o = float(kline[-2][1])
+                c = float(kline[-2][4])
+                v1 = float(kline[-2][5])
+                v2 = float(kline[-3][5])
                 pc = ((c - o) / o) * 100
                 vr = v1 / v2 if v2 > 0 else 0
                 alerts[symbol] = (pc, vr)
@@ -77,7 +77,7 @@ def get_blofin_data():
 
     return alerts
 
-# === CHECK FOR EVENTS ===
+# === CHECK EVENTS ===
 def check_alerts(data, source):
     for symbol, (pc, vr) in data.items():
         if pc >= PRICE_CHANGE_THRESHOLD:
@@ -88,7 +88,7 @@ def check_alerts(data, source):
             send_discord_alert(symbol, vr, "volume", source)
 
 # === MAIN LOOP ===
-print("✅ Bot is running... monitoring 5m pump, dump, volume events")
+print("✅ Bot running... 5m candles, pump/dump, volume spikes...")
 while True:
     check_alerts(get_bybit_data(), "Bybit")
     check_alerts(get_blofin_data(), "Blofin")
